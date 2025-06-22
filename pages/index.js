@@ -42,11 +42,7 @@ export default function Home() {
         <thead><tr><th>Sym</th><th>Price</th><th>Prev</th><th>Score</th><th>Phase</th></tr></thead>
         <tbody>{data.map(d =>
           <tr key={d.symbol}>
-            <td>{d.symbol}</td>
-            <td>{d.price}</td>
-            <td>{d.prevScore}</td>
-            <td style={{ color: d.score>=8?'limegreen':d.score>=5?'orange':'red' }}>{d.score}</td>
-            <td>{d.phase}</td>
+            <td>{d.symbol}</td><td>{d.price}</td><td>{d.prevScore}</td><td style={{ color: d.score>=8?'limegreen':d.score>=5?'orange':'red' }}>{d.score}</td><td>{d.phase}</td>
           </tr>
         )}</tbody>
       </table>
