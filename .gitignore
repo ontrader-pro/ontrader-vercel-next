@@ -14,3 +14,5 @@ yarn-error.log*
 "ren/" 
 git/ 
 ren/ 
+"git/"      # y opcionalmente ignorarlos en adelante
+"ren/" 
