@@ -1,0 +1,10 @@
+# Dependencias
+node_modules/
+# Salidas de build de Next.js
+.next/
+# Configuración local de Vercel
+.vercel/
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
