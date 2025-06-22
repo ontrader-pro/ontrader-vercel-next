@@ -16,3 +16,6 @@ git/
 ren/ 
 "git/"      # y opcionalmente ignorarlos en adelante
 "ren/" 
+git
+ren
+
