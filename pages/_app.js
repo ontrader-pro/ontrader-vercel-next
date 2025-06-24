@@ -1,14 +1,16 @@
+
 // pages/_app.js
-import '../styles/globals.css';
-import { SpeedInsights } from '@vercel/speed-insights';
+import '../styles/globals.css'
+import { SpeedInsights } from '@vercel/speed-insights'
 
 function MyApp({ Component, pageProps }) {
   return (
     <>
-      <Component {...pageProps} />
+      {/* Recoge métricas y las envía a tu dashboard de Vercel */}
       <SpeedInsights />
+      <Component {...pageProps} />
     </>
-  );
+  )
 }
 
-export default MyApp;
+export default MyApp
