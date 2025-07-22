@@ -4,11 +4,9 @@ import fetch from 'node-fetch';
 const COINGECKO =
   'https://api.coingecko.com/api/v3/coins/markets'
   + '?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false';
-
 // Binance Futures endpoints
 const BINANCE_FUTURES_INFO = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
 const BINANCE_KLINES      = 'https://fapi.binance.com/fapi/v1/klines';
-
 // Excluir stablecoins
 const STABLES = new Set(['USDT','USDC','BUSD','DAI','TUSD','USDP','GUSD','USDN']);
 
@@ -32,26 +30,23 @@ function calcRSI(arr) {
   return 100 - (100 / (1 + rs));
 }
 
-// Fetch con retry en caso de error leve
-async function fetchWithRetry(url, retries = 2) {
+// Fetch con retry en caso de error leve\async function fetchWithRetry(url, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url);
       if (res.status === 451) return [];
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       return await res.json();
     } catch (e) {
       if (i === retries) throw e;
-      await new Promise(r => setTimeout(r, 500 + i * 500));
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));
     }
   }
 }
 
 // Extrae máximo y mínimo de domingo de las velas diarias
 function getLastSundayMaxMin(klines) {
-  if (!Array.isArray(klines) || klines.length === 0) {
-    return { max: NaN, min: NaN };
-  }
+  if (!Array.isArray(klines) || klines.length === 0) return { max: NaN, min: NaN };
   for (let i = klines.length - 1; i >= 0; i--) {
     const date = new Date(klines[i][0]);
     if (date.getUTCDay() === 0) {
@@ -91,115 +86,14 @@ const prevScores = {};
 const prevPhases = {};
 let alertHistory = [];
 
-// Handler principal
 export default async function handler(req, res) {
   try {
     // 1) Top100 de CoinGecko
     const cgList = await fetchWithRetry(COINGECKO);
-
     // 2) Info de futuros Binance
-    const info   = await fetchWithRetry(BINANCE_FUTURES_INFO);
+    const info = await fetchWithRetry(BINANCE_FUTURES_INFO);
     const validF = new Set(
       info.symbols
         .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT'))
         .map(s => s.baseAsset)
     );
-
-    // 3) Filtrar activos válidos
-    const assets = cgList
-      .filter(c => c.symbol)
-      .map(c => ({
-        symbol: c.symbol.toUpperCase(),
-        bin: c.symbol.toUpperCase() + 'USDT',
-        price: c.current_price
-      }))
-      .filter(a => validF.has(a.symbol) && !STABLES.has(a.symbol));
-
-    const data = [];
-
-    for (const a of assets) {
-      let score = 0, phase = 'NoTrade';
-      const prev = prevScores[a.symbol] || 0;
-
-      try {
-        // Velas diarias
-        const dayKl = await fetchWithRetry(
-          `${BINANCE_KLINES}?symbol=${a.bin}&interval=1d&limit=10`
-        );
-        const { max, min } = getLastSundayMaxMin(dayKl);
-
-        // Velas 15m
-        const k15 = await fetchWithRetry(
-          `${BINANCE_KLINES}?symbol=${a.bin}&interval=15m&limit=28`
-        );
-        const closes15   = k15.map(x => Number(x[4]));
-        const ema28_15m  = calcEMA(closes15, 28);
-        const rsi15m     = calcRSI(closes15);
-
-        // Velas 5m
-        const k5 = await fetchWithRetry(
-          `${BINANCE_KLINES}?symbol=${a.bin}&interval=5m&limit=28`
-        );
-        const closes5    = k5.map(x => Number(x[4]));
-        const ema28_5m   = calcEMA(closes5, 28);
-        const rsi5m      = calcRSI(closes5);
-
-        // Velas 4m
-        const k4 = await fetchWithRetry(
-          `${BINANCE_KLINES}?symbol=${a.bin}&interval=4m&limit=15`
-        );
-        const closes4    = k4.map(x => Number(x[4]));
-        const rsi4m      = calcRSI(closes4);
-
-        // Score y fase
-        score = computeScore({
-          price: a.price, max, min,
-          ema28_15m, rsi15m,
-          ema28_5m, rsi5m,
-          rsi4m
-        });
-        phase = phaseText(score);
-
-        // Registrar alerta si cambió de fase
-        const oldPhase = prevPhases[a.symbol];
-        if (oldPhase && oldPhase !== phase) {
-          alertHistory.unshift({
-            time: new Date().toLocaleTimeString(),
-            symbol: a.symbol,
-            oldPhase,
-            newPhase: phase,
-            price: a.price,
-            score: score.toFixed(2)
-          });
-          if (alertHistory.length > 20) alertHistory.pop();
-        }
-
-        prevScores[a.symbol] = score;
-        prevPhases[a.symbol] = phase;
-        data.push({
-          symbol: a.symbol,
-          price: a.price.toFixed(6),
-          prevScore: prev.toFixed(2),
-          score: score.toFixed(2),
-          phase
-        });
-
-        // Throttle para no saturar la API
-        await new Promise(r => setTimeout(r, 200));
-      } catch {
-        data.push({
-          symbol: a.symbol,
-          price: '–',
-          prevScore: prev.toFixed(2),
-          score: '–',
-          phase: 'NoTrade'
-        });
-      }
-    }
-
-    // Responder JSON
-    res.status(200).json({ data, alerts: alertHistory });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-}
