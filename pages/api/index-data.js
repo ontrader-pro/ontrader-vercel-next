@@ -1,22 +1,16 @@
 import fetch from 'node-fetch';
 
-// CoinGecko: top 100 (sin sparkline)
-const COINGECKO =
-  'https://api.coingecko.com/api/v3/coins/markets'
-  + '?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false';
-// Binance Futures endpoints
 const BINANCE_FUTURES_INFO = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
-const BINANCE_KLINES      = 'https://fapi.binance.com/fapi/v1/klines';
-// Excluir stablecoins
+const BINANCE_KLINES       = 'https://fapi.binance.com/fapi/v1/klines';
+const BINANCE_TICKER_24H   = 'https://fapi.binance.com/fapi/v1/ticker/24hr';
+
 const STABLES = new Set(['USDT','USDC','BUSD','DAI','TUSD','USDP','GUSD','USDN']);
 
-// Cálculo de EMA en un array de cierres
 function calcEMA(arr, period) {
   const k = 2 / (period + 1);
   return arr.reduce((prev, v, i) => i ? v * k + prev * (1 - k) : v, 0);
 }
 
-// Cálculo de RSI en un array de cierres
 function calcRSI(arr) {
   let gains = 0, losses = 0;
   for (let i = 1; i < arr.length; i++) {
@@ -30,7 +24,7 @@ function calcRSI(arr) {
   return 100 - (100 / (1 + rs));
 }
 
-// Fetch con retry en caso de error leve\async function fetchWithRetry(url, retries = 2) {
+async function fetchWithRetry(url, retries = 2) {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await fetch(url);
@@ -44,7 +38,6 @@ function calcRSI(arr) {
   }
 }
 
-// Extrae máximo y mínimo de domingo de las velas diarias
 function getLastSundayMaxMin(klines) {
   if (!Array.isArray(klines) || klines.length === 0) return { max: NaN, min: NaN };
   for (let i = klines.length - 1; i >= 0; i--) {
@@ -57,7 +50,6 @@ function getLastSundayMaxMin(klines) {
   return { max: Number(last[2]), min: Number(last[3]) };
 }
 
-// Calcula el score según jerarquía y límites entre 1 y 10
 function computeScore({ price, max, min, ema28_15m, rsi15m, ema28_5m, rsi5m, rsi4m }) {
   let s = 1;
   if (!isNaN(min) && price > min) s += 3;
@@ -72,7 +64,6 @@ function computeScore({ price, max, min, ema28_15m, rsi15m, ema28_5m, rsi5m, rsi
   return Math.min(10, Math.max(1, s));
 }
 
-// Traduce score a fase
 function phaseText(score) {
   if (score <= 3.0) return '🔴 Oversold';
   if (score < 4.9) return '🔴 Bearish Incline';
@@ -81,19 +72,63 @@ function phaseText(score) {
   return '🟢 Overbought';
 }
 
-// Estado en memoria de la lambda entre llamadas
 const prevScores = {};
 const prevPhases = {};
 let alertHistory = [];
 
 export default async function handler(req, res) {
   try {
-    // 1) Top100 de CoinGecko
-    const cgList = await fetchWithRetry(COINGECKO);
-    // 2) Info de futuros Binance
     const info = await fetchWithRetry(BINANCE_FUTURES_INFO);
-    const validF = new Set(
-      info.symbols
-        .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT'))
-        .map(s => s.baseAsset)
-    );
+    const ticker24h = await fetchWithRetry(BINANCE_TICKER_24H);
+
+    // 1) Obtener símbolos válidos
+    const validAssets = info.symbols
+      .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !STABLES.has(s.baseAsset))
+      .map(s => s.symbol);
+
+    // 2) Ordenar por volumen y limitar a top 15
+    const ranked = ticker24h
+      .filter(t => validAssets.includes(t.symbol))
+      .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+      .slice(0, 15)
+      .map(t => t.symbol);
+
+    const results = [];
+
+    for (const symbol of ranked) {
+      try {
+        const candles15m = await fetchWithRetry(`${BINANCE_KLINES}?symbol=${symbol}&interval=15m&limit=28`);
+        const candles5m  = await fetchWithRetry(`${BINANCE_KLINES}?symbol=${symbol}&interval=5m&limit=28`);
+        const candles1m  = await fetchWithRetry(`${BINANCE_KLINES}?symbol=${symbol}&interval=1m&limit=4`);
+        const candlesD   = await fetchWithRetry(`${BINANCE_KLINES}?symbol=${symbol}&interval=1d&limit=7`);
+
+        const close15 = candles15m.map(c => parseFloat(c[4]));
+        const close5  = candles5m.map(c => parseFloat(c[4]));
+        const close1m = candles1m.map(c => parseFloat(c[4]));
+
+        const ema28_15m = calcEMA(close15, 28);
+        const ema28_5m  = calcEMA(close5, 28);
+        const rsi15m    = calcRSI(close15);
+        const rsi5m     = calcRSI(close5);
+        const rsi4m     = calcRSI(close1m);
+
+        const price = close1m[close1m.length - 1];
+        const { max, min } = getLastSundayMaxMin(candlesD);
+
+        const score = computeScore({ price, max, min, ema28_15m, rsi15m, ema28_5m, rsi5m, rsi4m });
+        const phase = phaseText(score);
+
+        results.push({ symbol, price, score, phase });
+
+      } catch (err) {
+        console.error(`❌ Error con ${symbol}:`, err.message);
+      }
+    }
+
+    return res.status(200).json({ results });
+
+  } catch (error) {
+    console.error('❌ ERROR GLOBAL:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+}
