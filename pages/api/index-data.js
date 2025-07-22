@@ -1,4 +1,3 @@
-// pages/api/index-data.js
 import fetch from 'node-fetch';
 
 // CoinGecko: top 100 (sin sparkline)
