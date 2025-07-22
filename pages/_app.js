@@ -1,16 +1,8 @@
-
 // pages/_app.js
-import '../styles/globals.css'
-import { SpeedInsights } from '@vercel/speed-insights'
 
-function MyApp({ Component, pageProps }) {
-  return (
-    <>
-      {/* Recoge métricas y las envía a tu dashboard de Vercel */}
-      <SpeedInsights />
-      <Component {...pageProps} />
-    </>
-  )
+// Removed SpeedInsights import to avoid build errors
+// If you need global CSS, create a file at styles/globals.css and import it here
+
+export default function App({ Component, pageProps }) {
+  return <Component {...pageProps} />;
 }
-
-export default MyApp
