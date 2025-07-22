@@ -75,8 +75,16 @@ export default async function handler(req, res) {
     const info = await fetchWithRetry(BINANCE_FUTURES_INFO);
     const ticker24h = await fetchWithRetry(BINANCE_TICKER_24H);
 
+    // Validación explícita para evitar error de undefined
+    if (!info || !Array.isArray(info.symbols)) {
+      throw new Error('❌ Binance exchangeInfo no válido');
+    }
+    if (!ticker24h || !Array.isArray(ticker24h)) {
+      throw new Error('❌ Binance ticker24h no válido');
+    }
+
     const validAssets = info.symbols
-      .filter(s => 
+      .filter(s =>
         s.contractType === 'PERPETUAL' &&
         s.symbol.endsWith('USDT') &&
         !STABLES.has(s.baseAsset)
