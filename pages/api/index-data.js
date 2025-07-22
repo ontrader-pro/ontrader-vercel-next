@@ -1,10 +1,8 @@
-import fetch from 'node-fetch';
-
 const BINANCE_FUTURES_INFO = 'https://fapi.binance.com/fapi/v1/exchangeInfo';
 const BINANCE_KLINES       = 'https://fapi.binance.com/fapi/v1/klines';
 const BINANCE_TICKER_24H   = 'https://fapi.binance.com/fapi/v1/ticker/24hr';
 
-const STABLES = new Set(['USDT','USDC','BUSD','DAI','TUSD','USDP','GUSD','USDN']);
+const STABLES = new Set(['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'GUSD', 'USDN']);
 
 function calcEMA(arr, period) {
   const k = 2 / (period + 1);
@@ -29,7 +27,7 @@ async function fetchWithRetry(url, retries = 2) {
     try {
       const res = await fetch(url);
       if (res.status === 451) return [];
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (e) {
       if (i === retries) throw e;
@@ -72,21 +70,19 @@ function phaseText(score) {
   return '🟢 Overbought';
 }
 
-const prevScores = {};
-const prevPhases = {};
-let alertHistory = [];
-
 export default async function handler(req, res) {
   try {
     const info = await fetchWithRetry(BINANCE_FUTURES_INFO);
     const ticker24h = await fetchWithRetry(BINANCE_TICKER_24H);
 
-    // 1) Obtener símbolos válidos
     const validAssets = info.symbols
-      .filter(s => s.contractType === 'PERPETUAL' && s.symbol.endsWith('USDT') && !STABLES.has(s.baseAsset))
+      .filter(s => 
+        s.contractType === 'PERPETUAL' &&
+        s.symbol.endsWith('USDT') &&
+        !STABLES.has(s.baseAsset)
+      )
       .map(s => s.symbol);
 
-    // 2) Ordenar por volumen y limitar a top 15
     const ranked = ticker24h
       .filter(t => validAssets.includes(t.symbol))
       .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
